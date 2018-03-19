@@ -1,0 +1,41 @@
+---
+title: "Study 1: Reinforcement-Punishment Analysis"
+author: "Debbie Yee"
+date: "3/18/2018"
+output: pdf_document
+---
+
+# Study 1: Punishment Effects of Monetary and Liquid Incentives
+This is an analysis of the subject performance of study 1 of reinforcement and punishment effects of liquid feedback with monetary gains and losses. In the study, subjects perform the cued task-switching paradigm, where they have classify a letter (vowel/consonant) or digit (odd/even). During the baseline runs, they don't receive any feedback and are told to respond "as quickly and accurate as possible." During the incentive runs, they receive a drop of liquid (1 or 2 mL) to indicate successful attainment of monetary reward in a single trial. Each subject performs 3 incentive runs in which they must respond accurately and faster than a criterion RT to earn monetary reward. Liquid feedback (blocked) signaled failure to attain monetary reward (opportunity cost). Criterion RT is calculated on subject performance during the baseline run (25%) (CHECK THIS), and is the same for both reinforcement and punishment conditions.
+
+
+# Loading relevant packages
+```{r packages, message=FALSE}
+library(ggplot2)
+library(gridExtra)
+library(dplyr)
+library(tidyr)
+library(lme4)
+library(lmerTest)
+library(sjPlot)
+source("/Users/debbieyee/Dropbox/CCPLabProjects/Liquid_Feedback/OAYA_Combined/Analysis/Yee/summarySEwithin2.R")
+```
+
+# Path Directories of Data Input/Output
+```{r}
+# data directories
+data.path<-paste0("/Users/debbieyee/Dropbox/CCPLabProjects/Liquid_Feedback/",
+                  "Reinforce-Punish_Combined/Study1/Data/SubjectData/NewCT/TrimmedData/",
+                  "Pilot10_ConsolidatedRewardData.csv")
+runkey.path<-paste0("/Users/debbieyee/Dropbox/CCPLabProjects/Liquid_Feedback/",
+                    "Reinforce-Punish_Combined/Study2/Data/SubjectData/TrimmedData/",
+                    "Pilot9_ConsolidateRunKey.csv")
+figure.path<-paste0("/Users/debbieyee/Dropbox/CCPLabProjects/Liquid_Feedback/",
+                    "Reinforce-Punish_Combined/Study2/Analysis/Figures/")
+```
+
+# Format the Data For Analysis
+```{r}
+
+```
+
