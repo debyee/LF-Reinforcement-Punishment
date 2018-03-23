@@ -13,13 +13,15 @@ Criterion RT is calculated on subject performance during the baseline run (30%),
 # Loading relevant packages
 ```{r packages, message=FALSE}
 library(ggplot2)
+library(RColorBrewer)
 library(gridExtra)
 library(dplyr)
 library(tidyr)
 library(lme4)
 library(lmerTest)
 library(sjPlot)
-source("/Users/debbieyee/Dropbox/CCPLabProjects/Liquid_Feedback/OAYA_Combined/Analysis/Yee/summarySEwithin2.R")
+library(pander)
+source("summarySEwithin2.R")
 ```
 
 # Path directories of data input/output
@@ -38,10 +40,717 @@ figure.path<-paste0("/Users/debbieyee/Dropbox/CCPLabProjects/Liquid_Feedback/",
 # Format the data for analysis
 ```{r}
 # Read in the data
-data<-read.csv(data.path,header = TRUE)
-runkey<-read.csv(runkey.path, header = TRUE) 
+data<-read.csv(data.path,header = TRUE) %>% select(-X)
+runkey<-read.csv(runkey.path, header = TRUE) %>% 
+  select(subID,block,liquid)
 
 # Formatting incentive data
-data<-select(runkey) 
+incentive<- data %>% inner_join(y = runkey, by = c("subID","block"))  %>%
+  mutate(subRewarded=(RT<critRT & ACC==1)*1,
+         ERR=ifelse(ACC==0,1,0), 
+         block = factor(block, levels=c(7:12), labels=c(1:6)),
+         money=factor(reward, levels=c("Reward1","Reward2","Reward4"), labels=c("$","$$","$$$$")),
+         moneyCode=factor(reward, levels=c("Reward1","Reward2","Reward4"), labels=c(-1,0,1)),
+         liqCode=factor(liquid, levels=c("saltwater","neutral","juice"), labels=c(-1,0,1)),
+         liqCodeJvN=factor(liquid, levels=c("saltwater","neutral","juice"), labels=c(0,-1,1)),
+         liqCodeSvN=factor(liquid, levels=c("saltwater","neutral","juice"), labels=c(-1,1,0)),
+         feedbackCode = factor(feedback, levels=c("Pos","Neg"), labels=c(0,1)),
+         feedback = factor(feedback, levels=c("Pos","Neg"), labels=c("Gain","Loss Avoidance"))) %>%
+  group_by(subID)
+incentive$moneyCode<-as.numeric(levels(incentive$moneyCode)[incentive$moneyCode])
+incentive$liqCode<-as.numeric(levels(incentive$liqCode)[incentive$liqCode])
+incentive$liqCodeJvN<-as.numeric(levels(incentive$liqCodeJvN)[incentive$liqCodeJvN])
+incentive$liqCodeSvN<-as.numeric(levels(incentive$liqCodeSvN)[incentive$liqCodeSvN])
+incentive$feedbackCode <- as.numeric(levels(incentive$feedbackCode)[incentive$feedbackCode])
 ```
 
+# Summarise/Consolidate Incentive Data
+```{r summarise_incentive}
+# by money only
+data.money.means<-incentive %>% group_by(subID,money) %>% 
+  filter(!is.na(subRewarded)) %>%
+  summarise(n=n(), meanRR = mean(subRewarded), meanACC = mean(ACC), meanErr = mean(ERR))
+
+# by liquid only
+data.liq.means = incentive %>% group_by(subID, liquid) %>% 
+  filter(!is.na(subRewarded)) %>%
+  summarise(n=n(), meanRR = mean(subRewarded), meanACC = mean(ACC), meanErr = mean(ERR))
+
+# by feedback only
+data.feedback.means<-incentive %>% group_by(subID,feedback) %>% 
+  filter(!is.na(subRewarded)) %>%
+  summarise(n=n(), meanRR = mean(subRewarded), meanACC = mean(ACC), meanErr = mean(ERR))
+
+# money and feedback
+data.MF.means = incentive %>% group_by(subID, money,feedback) %>% 
+  filter(!is.na(subRewarded)) %>%
+  summarise(n=n(), meanRR = mean(subRewarded), meanACC = mean(ACC), meanErr = mean(ERR)) %>%
+  ungroup(subID) %>% mutate(subID=as.factor(subID))
+
+# liquid and feedback
+data.LF.means = incentive %>% group_by(subID,liquid,feedback) %>% 
+  filter(!is.na(subRewarded)) %>%
+  summarise(n=n(), meanRR = mean(subRewarded), meanACC = mean(ACC), meanErr = mean(ERR)) %>%
+  ungroup(subID) %>% mutate(subID=as.factor(subID))
+
+# money, liquid, feedback
+incentive9.means = incentive %>% group_by(subID, liquid, money, feedback) %>%
+  filter(!is.na(subRewarded)) %>%
+  summarise(n = n(), meanRR = mean(subRewarded), meanACC = mean(ACC), meanERR = mean(ERR)) %>%
+  mutate(moneycode = as.numeric(as.character(factor(money,levels=c("$","$$","$$$$"),
+                                                    labels=c(-1,0,1)))),
+         liqcode = as.numeric(as.character(factor(liquid,levels=c("saltwater","neutral","juice"),
+                                                  labels=c(-1,0,1))))) %>%
+  ungroup(subID) %>% mutate(subID=as.factor(subID))
+
+# money, liquid, feedback
+incentive9RT.means = incentive %>% group_by(subID, liquid, money, feedback) %>%
+  filter(!is.na(subRewarded) & ACC==1) %>%
+  summarise(n = n(), meanRT = mean(RT)) %>%
+  mutate(moneyCode = as.numeric(as.character(factor(money,levels=c("$","$$","$$$$"),
+                                                    labels=c(-1,0,1)))),
+         liqCode = as.numeric(as.character(factor(liquid,levels=c("saltwater","neutral","juice"),
+                                                  labels=c(-1,0,1)))),
+         feedbackCode = as.numeric(as.character(factor(feedback,levels=c("Gain","Loss Avoidance"),
+                                                  labels=c(0,1))))) %>%
+  ungroup(subID) %>% mutate(subID=as.factor(subID))
+```
+
+\newpage
+# Reward Rate: Monetary Rewards
+```{r, fig.width=5, fig.height=4}
+RR.sum<-summarySEwithin2(data = data.money.means, measurevar = "meanRR", 
+                         withinvars = c("money"), idvar = "subID")
+p.RR.1<-ggplot(RR.sum, aes(x=money, y=meanRR)) + 
+  geom_bar(position=position_dodge(width=0.8), color="black", stat="identity", width=0.8) +
+  geom_errorbar(position=position_dodge(width=0.8), aes(ymin=meanRR-se, ymax=meanRR+se), width=.2) +  
+  labs(x="Feedback",y="Reward Rate") +
+  #ggtitle("Task Performance Across Money") + 
+  #scale_x_discrete(labels=c("win","avoid losing")) +
+  coord_cartesian(ylim=c(.4,.9)) +
+  theme(panel.background = element_blank(), panel.grid.major= element_blank(),
+        panel.grid.minor=element_blank(),
+        plot.title=element_text(size=22,face="bold", vjust=2),
+        axis.title=element_text(size=12,face = "bold"),
+        axis.text=element_text(size=14),
+        legend.position="none")
+p.RR.1
+```
+
+# Reward Rate: Liquid Incentives
+```{r, fig.width=5, fig.height=4}
+RR.sum<-summarySEwithin2(data = data.liq.means, measurevar = "meanRR", 
+                         withinvars = c("liquid"), idvar = "subID")
+p.RR.2<-ggplot(RR.sum, aes(x=liquid, y=meanRR)) + 
+  geom_bar(position=position_dodge(width=0.8), color="black", stat="identity", width=0.8) +
+  geom_errorbar(position=position_dodge(width=0.8), aes(ymin=meanRR-se, ymax=meanRR+se), width=.2) +  
+  labs(x="Feedback",y="Reward Rate") +
+  ggtitle("Task Performance Across Liquids") + 
+  #scale_x_discrete(labels=c("win","avoid losing")) +
+  coord_cartesian(ylim=c(.4,.9)) +
+  theme(panel.background = element_blank(), panel.grid.major= element_blank(),
+        panel.grid.minor=element_blank(),
+        plot.title=element_text(size=22,face="bold", vjust=2),
+        axis.title=element_text(size=12,face = "bold"),
+        axis.text=element_text(size=14),
+        legend.position="none")
+p.RR.2
+```
+
+\newpage
+# Reward Rate: Win vs. Loss Avoidance Framework
+## Plot: Win vs. Avoid Losses
+```{r, fig.width=5, fig.height=4}
+RR.sum<-summarySEwithin2(data = data.feedback.means, measurevar = "meanRR", withinvars = c("feedback"), idvar = "subID")
+p.RR.3<-ggplot(RR.sum, aes(x=feedback, y=meanRR, fill=feedback)) + 
+  geom_bar(position=position_dodge(width=0.8), color="black", stat="identity", width=0.8) +
+  scale_fill_brewer(palette="Pastel2") +
+  geom_errorbar(position=position_dodge(width=0.8), 
+                aes(ymin=meanRR-se, ymax=meanRR+se), width=.2) +  
+  labs(x="Feedback",y="Reward Rate") +
+  #ggtitle("Task Performance Across Money") + 
+  scale_x_discrete(labels=c("win","avoid losing")) +
+  coord_cartesian(ylim=c(.3,.85)) +
+  theme(
+        panel.grid.minor=element_blank(),
+        plot.title=element_text(size=22,face="bold", vjust=2),
+        axis.title=element_text(size=14,face = "bold"),
+        axis.text=element_text(size=16),
+        legend.position="none")
+p.RR.3
+```
+\newpage
+## Plot: Win vs. Avoid Losses by Monetary Reward
+```{r}
+RR.sum<-summarySEwithin2(data = data.MF.means, measurevar = "meanRR", 
+                         withinvars = c("money","feedback"), idvar = "subID")
+pandoc.table(RR.sum)
+p.RR.4<-ggplot(RR.sum, aes(x=money, y=meanRR, fill=feedback)) + 
+  geom_bar(position=position_dodge(width=0.8), color="black", stat="identity", width=0.8) +
+  geom_errorbar(position=position_dodge(width=0.8), aes(ymin=meanRR-se, ymax=meanRR+se), width=.2) + 
+  #scale_fill_brewer(palette="Pastel2") +
+  scale_fill_brewer(palette="Pastel2") +
+  facet_grid(.~feedback) +
+  labs(x=" ",y="Reward Rate") +
+  #scale_x_discrete(labels=c("win","avoid losing")) +
+  #scale_x_discrete(labels=c("$","$$","$$$$")) +
+  #ggtitle("Task Performance Across Money") + 
+  coord_cartesian(ylim=c(.3,.9)) +
+  theme(#panel.background = element_blank(), panel.grid.major= element_blank(),
+        panel.grid.minor=element_blank(),
+        plot.title=element_text(size=22,face="bold", vjust=2),
+        axis.title=element_text(size=12,face = "bold"),
+        axis.text=element_text(size=14),
+        strip.text.x = element_text(size=16, face = "bold"),
+        legend.position="top",
+        legend.title=element_blank())
+p.RR.4
+```
+
+## Plot: Win vs. Avoid Losses by Liquid
+```{r}
+RR.sum<-summarySEwithin2(data = data.LF.means, measurevar = "meanRR", 
+                         withinvars = c("liquid","feedback"), idvar = "subID")
+#RR.sum$liquid2<-factor(RR.sum$liquid, labels = c("Juice","Neutral","Saltwater"))
+pandoc.table(RR.sum)
+p.RR.5<-ggplot(RR.sum, aes(x=liquid, y=meanRR,fill=liquid)) + 
+  geom_bar(position=position_dodge(width=0.8), color="black", stat="identity", width=0.8) +
+  geom_errorbar(position=position_dodge(width=0.8), aes(ymin=meanRR-se, ymax=meanRR+se), width=.2) +  
+  scale_fill_brewer(palette="Set2") +
+  facet_grid(.~feedback) +
+  labs(x=" ",y="Reward Rate") +
+  #ggtitle("Task Performance Across Money") +
+  scale_x_discrete(labels=c("Juice","Neutral","Saltwater")) +
+  coord_cartesian(ylim=c(.3,.9)) +
+  theme(panel.grid.minor=element_blank(),
+        plot.title=element_text(size=22,face="bold", vjust=2),
+        axis.title=element_text(size=12,face = "bold"),
+        axis.text=element_text(size=14),
+        legend.position="top",
+        strip.text.x = element_text(size = 16, face = "bold"))
+p.RR.5
+```
+
+
+## Plot: Win vs. Avoid Losses by Monetary Reward & Liquid
+```{r}
+RR.sum=summarySEwithin2(data = incentive9.means, measurevar = "meanRR", 
+                        withinvars = c("liquid","feedback","money"), idvar="subID")
+pandoc.table(RR.sum)
+p.RR.6<-ggplot(RR.sum, aes(x=liquid, y=meanRR,fill=money)) + 
+  geom_bar(position=position_dodge(width=0.8), color="black", stat="identity", width=0.8) +
+  geom_errorbar(position=position_dodge(width=0.8), aes(ymin=meanRR-se, ymax=meanRR+se), width=.2) +  
+  scale_fill_brewer(palette="Set2") +
+  facet_grid(.~feedback) +
+  labs(x="Liquid",y="Reward Rate") + 
+  #ggtitle("Reward Rate Performance") + 
+  coord_cartesian(ylim=c(.3,.85)) +
+  #scale_fill_discrete(name="Monetary Reward") +
+  scale_x_discrete(labels=c("Juice","Neutral","Saltwater")) +
+  #geom_hline(yintercept = .30, color="darkorchid4") +
+  #annotate("text", 1.2, .85, label = "Reward Criterion (30%)", color="darkorchid4") +
+  #geom_segment(aes(x=.55,xend=.65,y=.85,yend=.85), color="darkorchid4") + 
+  #geom_hline(yintercept = reward_crit_low, color="darkorchid4", linetype="dashed") +
+  #geom_hline(yintercept = reward_crit_high, color="darkorchid4", linetype="dashed") +
+  #geom_rect(mapping = aes(xmin=.4,xmax=2.6,ymin=reward_crit_low,ymax=reward_crit_high), fill="darkorchid4", alpha=0.05) +
+  #annotate("text", 1.39, .82, label = "Binomial Confidence Interval (95%)", color="darkorchid4") +
+  #geom_segment(aes(x=.55,xend=.65,y=.82,yend=.82), color="darkorchid4", linetype="dashed") + 
+  theme(panel.grid.minor=element_blank(),
+        plot.title=element_text(size=22,face="bold", vjust=2),
+        axis.title=element_text(size=12,face = "bold"),
+        axis.text=element_text(size=14),
+        legend.position="top",
+        strip.text.x = element_text(size = 16, face="bold"))
+p.RR.6
+```
+
+```{r}
+RR.sum=summarySEwithin2(data = incentive9.means, measurevar = "meanRR", 
+                        withinvars = c("liquid","feedback","money"), idvar="subID")
+p.RR.7<-ggplot(RR.sum, aes(x=money, y=meanRR,fill=liquid)) + 
+  geom_bar(position=position_dodge(width=0.8), color="black", stat="identity", width=0.8) +
+  geom_errorbar(position=position_dodge(width=0.8), aes(ymin=meanRR-se, ymax=meanRR+se), width=.2) +  
+  scale_fill_brewer(palette="Set2") +
+  facet_grid(.~feedback) +
+  labs(x="Monetary Reward",y="Reward Rate") + 
+  #ggtitle("Reward Rate Performance") + 
+  coord_cartesian(ylim=c(.3,.9)) +
+  #scale_fill_discrete(name="Monetary Reward") +
+  #scale_x_discrete(labels=c("$","$$","$$$$")) +
+  #geom_hline(yintercept = .30, color="darkorchid4") +
+  #annotate("text", 1.2, .85, label = "Reward Criterion (30%)", color="darkorchid4") +
+  #geom_segment(aes(x=.55,xend=.65,y=.85,yend=.85), color="darkorchid4") + 
+  #geom_hline(yintercept = reward_crit_low, color="darkorchid4", linetype="dashed") +
+  #geom_hline(yintercept = reward_crit_high, color="darkorchid4", linetype="dashed") +
+  #geom_rect(mapping = aes(xmin=.4,xmax=2.6,ymin=reward_crit_low,ymax=reward_crit_high), fill="darkorchid4", alpha=0.05) +
+  #annotate("text", 1.39, .82, label = "Binomial Confidence Interval (95%)", color="darkorchid4") +
+  #geom_segment(aes(x=.55,xend=.65,y=.82,yend=.82), color="darkorchid4", linetype="dashed") + 
+  theme(panel.grid.minor=element_blank(),
+        plot.title=element_text(size=22,face="bold", vjust=2),
+        axis.title=element_text(size=12,face = "bold"),
+        axis.text=element_text(size=14),
+        legend.position="top",
+        strip.text.x = element_text(size = 16, face="bold"))
+p.RR.7
+```
+
+```{r}
+RR.sum=summarySEwithin2(data = incentive9.means, measurevar = "meanRR", 
+                        withinvars = c("liquid","feedback","money"), idvar="subID")
+p.RR.8<-ggplot(RR.sum, aes(x=feedback, y=meanRR,fill=liquid)) + 
+  geom_bar(position=position_dodge(width=0.8), color="black", stat="identity", width=0.8) +
+  geom_errorbar(position=position_dodge(width=0.8), aes(ymin=meanRR-se, ymax=meanRR+se), width=.2) +  
+  scale_fill_brewer(palette="Set2") +
+  facet_grid(.~money) +
+  labs(x="Monetary Reward",y="Reward Rate") + 
+  #ggtitle("Reward Rate Performance") + 
+  coord_cartesian(ylim=c(.3,.9)) +
+  #scale_fill_discrete(name="Monetary Reward") +
+  #scale_x_discrete(labels=c("$","$$","$$$$")) +
+  #geom_hline(yintercept = .30, color="darkorchid4") +
+  #annotate("text", 1.2, .85, label = "Reward Criterion (30%)", color="darkorchid4") +
+  #geom_segment(aes(x=.55,xend=.65,y=.85,yend=.85), color="darkorchid4") + 
+  #geom_hline(yintercept = reward_crit_low, color="darkorchid4", linetype="dashed") +
+  #geom_hline(yintercept = reward_crit_high, color="darkorchid4", linetype="dashed") +
+  #geom_rect(mapping = aes(xmin=.4,xmax=2.6,ymin=reward_crit_low,ymax=reward_crit_high), fill="darkorchid4", alpha=0.05) +
+  #annotate("text", 1.39, .82, label = "Binomial Confidence Interval (95%)", color="darkorchid4") +
+  #geom_segment(aes(x=.55,xend=.65,y=.82,yend=.82), color="darkorchid4", linetype="dashed") + 
+  theme(panel.grid.minor=element_blank(),
+        plot.title=element_text(size=22,face="bold", vjust=2),
+        axis.title=element_text(size=12,face = "bold"),
+        axis.text=element_text(size=14),
+        legend.position="top",
+        strip.text.x = element_text(size = 16, face="bold"))
+p.RR.8
+```
+
+\newpage
+# Generalized Linear Mixed Models: Reward Rate
+## RT as a function of Feedback
+```{r}
+# omnibus model: reward rate by liquid and money
+m.RR.1<-glmer(formula = subRewarded ~ moneyCode*liqCode*feedbackCode +(1+moneyCode+liqCode|subID), 
+              data = incentive, family=binomial) 
+summary(m.RR.1)
+```
+
+\newpage
+## Reward Rate in Gain/Win Frame
+```{r}
+m.RR.2<-glmer(formula = subRewarded ~ moneyCode*liqCode +(1+moneyCode+liqCode|subID), 
+              data = filter(incentive,feedbackCode==0), family=binomial) 
+summary(m.RR.2)
+```
+
+### Reward in Gain/Win Frame by Monetary Reward
+Here we look at the effects of the liquid at different monetary reward levels.Task performance differences are more affected in low monetary reward levels (lowest win condition). In low monetary reward conditions, there is a significant liquid effect. In medium monetary reward conditions there is also a significant liqid effect. In high monetary reward conditions, there is no longer a significant liquid effect. It is strange that there is no significant interaction - I wonder why that is? 
+```{r}
+# Money $ (Low)
+m.RR.2.rew1<-glmer(formula = subRewarded ~ liqCode + (1+liqCode|subID), 
+              data = filter(incentive,feedbackCode==0 & moneyCode==-1), family=binomial) 
+summary(m.RR.2.rew1)
+
+# Money $$ (Medium)
+m.RR.2.rew2<-glmer(formula = subRewarded ~ liqCode + (1+liqCode|subID), 
+              data = filter(incentive,feedbackCode==0 & moneyCode==0), family=binomial) 
+summary(m.RR.2.rew2)
+
+# Money $$$$ (High)
+m.RR.2.rew4<-glmer(formula = subRewarded ~ liqCode + (1+liqCode|subID), 
+              data = filter(incentive,feedbackCode==0 & moneyCode==1), family=binomial) 
+summary(m.RR.2.rew4)
+```
+
+\newpage
+## Reward Rate in Loss/Avoid Punishment Frame
+```{r}
+m.RR.3<-glmer(formula = subRewarded ~ moneyCode*liqCode +(1+moneyCode+liqCode|subID), 
+              data = filter(incentive,feedbackCode==1), family=binomial) 
+summary(m.RR.3)
+```
+
+### Reward in Loss/Avoid Punishment Frame by Monetary Reward
+Here we look at the effects of the liquid at different monetary reward levels, as we did in Study 1. The pattern of results matches Study 1, which reveal that when Liquid is delivered as 'punishment' to signal failure to attain reward, these task performance differences are more affected in low monetary reward levels (lowest loss condition). In low monetary reward conditions, there is a significant liquid effect. In medium monetary reward conditions there is also a significant liqid effect. In high monetary reward conditions, there is no longer a significant liquid effect. It is strange that there is no significant interaction - I wonder why that is? 
+```{r}
+# Money $ (Low)
+m.RR.3.rew1<-glmer(formula = subRewarded ~ liqCode + (1+liqCode|subID), 
+              data = filter(incentive,feedbackCode==1 & moneyCode==-1), family=binomial) 
+summary(m.RR.3.rew1)
+
+# Money $$ (Medium)
+m.RR.3.rew2<-glmer(formula = subRewarded ~ liqCode + (1+liqCode|subID), 
+              data = filter(incentive,feedbackCode==1 & moneyCode==0), family=binomial) 
+summary(m.RR.3.rew2)
+
+# Money $$$$ (High)
+m.RR.3.rew4<-glmer(formula = subRewarded ~ liqCode + (1+liqCode|subID), 
+              data = filter(incentive,feedbackCode==1 & moneyCode==1), family=binomial) 
+summary(m.RR.3.rew4)
+```
+
+# Response Time
+## Plot: mean response time by money and liquid
+```{r}
+RT.sum=summarySEwithin2(data=incentive9RT.means, measurevar = "meanRT", 
+                        withinvars = c("money","liquid","feedback"),
+                        idvar = "subID")
+pandoc.table(RT.sum)
+p.RT.3<-ggplot(RT.sum, aes(x=money, y=meanRT, fill=liquid)) +
+  geom_bar(position=position_dodge(width=0.8), color="black", 
+          stat="identity", width=0.8) +
+  geom_errorbar(position=position_dodge(width=0.8), 
+                aes(ymin=meanRT-se, ymax=meanRT+se), width=.2) +
+  scale_fill_brewer(palette = "Set2") +
+  xlab("Monetary Reward") + ylab("Response Time (ms)") +
+  facet_grid(.~feedback)+
+  #ggtitle("Response Time (ms)") +
+  coord_cartesian(ylim=c(450,675)) +
+  #scale_fill_discrete(name="Monetary Reward") +
+  theme(#plot.title=element_text(size=22,face="bold", vjust=2),
+        axis.title=element_text(size=12,face = "bold"),
+        axis.text=element_text(size=14),
+        legend.position="top",
+        strip.text.x = element_text(size = 16, face="bold"))
+p.RT.3
+```
+
+\newpage
+# Generalized Linear Mixed Models: Response Time
+## RT as a function of Feedback
+```{r}
+# omnibus model: reward rate by liquid and money
+incentive.RT<-filter(incentive, ACC==1)
+m.RT.1<-lmer(formula = RT ~ moneyCode*liqCode*feedbackCode +(1+moneyCode+liqCode|subID), 
+              data = incentive.RT, REML=FALSE) 
+summary(m.RT.1)
+```
+
+\newpage
+## Response Time in Gain/Win Frame
+```{r}
+m.RT.2<-lmer(formula = RT ~ moneyCode*liqCode +(1+moneyCode+liqCode|subID), 
+              data = filter(incentive.RT,feedbackCode==0), REML=FALSE) 
+summary(m.RT.2)
+```
+
+### Response Time in Gain/Win Frame by Monetary Reward
+```{r}
+# Money $ (Low)
+m.RT.2.rew1<-lmer(formula = RT ~ liqCode + (1+liqCode|subID), 
+              data = filter(incentive.RT,feedbackCode==0 & moneyCode==-1), REML=FALSE) 
+summary(m.RT.2.rew1)
+
+# Money $$ (Medium)
+m.RT.2.rew2<-lmer(formula = RT ~ liqCode + (1+liqCode|subID), 
+              data = filter(incentive.RT,feedbackCode==0 & moneyCode==0), REML=FALSE) 
+summary(m.RT.2.rew2)
+
+# Money $$$$ (High)
+m.RT.2.rew4<-lmer(formula = RT ~ liqCode + (1+liqCode|subID), 
+              data = filter(incentive.RT,feedbackCode==0 & moneyCode==1), REML=FALSE) 
+summary(m.RT.2.rew4)
+```
+
+\newpage
+## Response Time in Loss/Avoid Punishment Frame
+```{r}
+m.RT.3<-lmer(formula = RT ~ moneyCode*liqCode +(1+moneyCode+liqCode|subID), 
+              data = filter(incentive.RT,feedbackCode==1), REML=FALSE) 
+summary(m.RT.3)
+```
+
+### Response Time in Loss/Avoid Punishment Frame by Monetary Reward
+```{r}
+# Money $ (Low)
+m.RT.3.rew1<-lmer(formula = RT ~ liqCode + (1+liqCode|subID), 
+              data = filter(incentive.RT,feedbackCode==1 & moneyCode==-1), REML=FALSE) 
+summary(m.RT.3.rew1)
+
+# Money $$ (Medium)
+m.RT.3.rew2<-lmer(formula = RT ~ liqCode + (1+liqCode|subID), 
+              data = filter(incentive.RT,feedbackCode==1 & moneyCode==0), REML=FALSE) 
+summary(m.RT.3.rew2)
+
+# Money $$$$ (High)
+m.RT.3.rew4<-lmer(formula = RT ~ liqCode + (1+liqCode|subID), 
+              data = filter(incentive.RT,feedbackCode==1 & moneyCode==1), REML=FALSE) 
+summary(m.RT.3.rew4)
+```
+
+\newpage
+# Accuracy
+## Plot: mean accuracy money and liquid
+```{r}
+ACC.sum=summarySEwithin2(data=incentive9.means, measurevar = "meanACC", 
+                        withinvars = c("money","liquid","feedback"),
+                        idvar = "subID")
+pandoc.table(ACC.sum)
+p.ACC.3<-ggplot(ACC.sum, aes(x=money, y=meanACC, fill=liquid)) +
+  geom_bar(position=position_dodge(width=0.8), color="black", 
+          stat="identity", width=0.8) +
+  geom_errorbar(position=position_dodge(width=0.8), 
+                aes(ymin=meanACC-se, ymax=meanACC+se), width=.2) +
+  scale_fill_brewer(palette = "Set2") +
+  xlab("Monetary Reward") + ylab("Accuracy") +
+  facet_grid(.~feedback)+
+  #ggtitle("Response Time (ms)") +
+  coord_cartesian(ylim=c(0.5,1)) +
+  #scale_fill_discrete(name="Monetary Reward") +
+  theme(#plot.title=element_text(size=22,face="bold", vjust=2),
+        axis.title=element_text(size=12,face = "bold"),
+        axis.text=element_text(size=14),
+        legend.position="top",
+        strip.text.x = element_text(size = 16, face="bold"))
+p.ACC.3
+```
+
+\newpage
+# Generalized Linear Mixed Models: Reward Rate
+## ACC as a function of Feedback
+```{r}
+# omnibus model: reward rate by liquid and money
+m.ACC.1<-glmer(formula = ACC ~ moneyCode*liqCode*feedbackCode +(1+moneyCode+liqCode|subID), 
+              data = incentive, family=binomial) 
+summary(m.ACC.1)
+```
+
+\newpage
+## Reward Rate in Gain/Win Frame
+```{r}
+m.ACC.2<-glmer(formula = ACC ~ moneyCode*liqCode +(1+moneyCode+liqCode|subID), 
+              data = filter(incentive,feedbackCode==0), family=binomial) 
+summary(m.ACC.2)
+```
+
+### Reward in Gain/Win Frame by Monetary Reward
+Here we look at the effects of the liquid at different monetary reward levels.Task performance differences are more affected in low monetary reward levels (lowest win condition). In low monetary reward conditions, there is a significant liquid effect. In medium monetary reward conditions there is also a significant liqid effect. In high monetary reward conditions, there is no longer a significant liquid effect. It is strange that there is no significant interaction - I wonder why that is? 
+```{r}
+# Money $ (Low)
+m.ACC.2.rew1<-glmer(formula = ACC ~ liqCode + (1+liqCode|subID), 
+              data = filter(incentive,feedbackCode==0 & moneyCode==-1), family=binomial) 
+summary(m.ACC.2.rew1)
+
+# Money $$ (Medium)
+m.ACC.2.rew2<-glmer(formula = ACC ~ liqCode + (1+liqCode|subID), 
+              data = filter(incentive,feedbackCode==0 & moneyCode==0), family=binomial) 
+summary(m.ACC.2.rew2)
+
+# Money $$$$ (High)
+m.ACC.2.rew4<-glmer(formula = ACC ~ liqCode + (1+liqCode|subID), 
+              data = filter(incentive,feedbackCode==0 & moneyCode==1), family=binomial) 
+summary(m.ACC.2.rew4)
+```
+
+\newpage
+## Reward Rate in Loss/Avoid Punishment Frame
+```{r}
+m.ACC.3<-glmer(formula = ACC ~ moneyCode*liqCode +(1+moneyCode+liqCode|subID), 
+              data = filter(incentive,feedbackCode==1), family=binomial) 
+summary(m.ACC.3)
+```
+
+### Reward in Loss/Avoid Punishment Frame by Monetary Reward
+Here we look at the effects of the liquid at different monetary reward levels, as we did in Study 1. The pattern of results matches Study 1, which reveal that when Liquid is delivered as 'punishment' to signal failure to attain reward, these task performance differences are more affected in low monetary reward levels (lowest loss condition). In low monetary reward conditions, there is a significant liquid effect. In medium monetary reward conditions there is also a significant liqid effect. In high monetary reward conditions, there is no longer a significant liquid effect. It is strange that there is no significant interaction - I wonder why that is? 
+```{r}
+# Money $ (Low)
+m.ACC.3.rew1<-glmer(formula = ACC ~ liqCode + (1+liqCode|subID), 
+              data = filter(incentive,feedbackCode==1 & moneyCode==-1), family=binomial) 
+summary(m.ACC.3.rew1)
+
+# Money $$ (Medium)
+m.ACC.3.rew2<-glmer(formula = ACC ~ liqCode + (1+liqCode|subID), 
+              data = filter(incentive,feedbackCode==1 & moneyCode==0), family=binomial) 
+summary(m.ACC.3.rew2)
+
+# Money $$$$ (High)
+m.ACC.3.rew4<-glmer(formula = ACC ~ liqCode + (1+liqCode|subID), 
+              data = filter(incentive,feedbackCode==1 & moneyCode==1), family=binomial) 
+summary(m.ACC.3.rew4)
+```
+
+
+```{r}
+# 
+# ERR.sum=summarySEwithin2(data = data.means, measurevar = "meanErr", withinvars = c("money","feedback"), idvar="subID")
+# p5b<-ggplot(ERR.sum, aes(x=feedback, y=meanErr, fill=feedback)) + 
+#   geom_bar(position=position_dodge(width=0.8), color="black", stat="identity", width=0.8) +
+#   geom_errorbar(position=position_dodge(width=0.8), aes(ymin=meanErr-se, ymax=meanErr+se), width=.2) + 
+#   scale_fill_brewer(palette="Pastel2") +
+#   facet_grid(.~money) +
+#   labs(x=" ",y="Response Time") +
+#   scale_x_discrete(labels=c("win","avoid losing")) +
+#   #ggtitle("Task Performance Across Money") + 
+#   coord_cartesian(ylim=c(0,.1)) +
+#   theme(#panel.background = element_blank(), panel.grid.major= element_blank(),
+#         panel.grid.minor=element_blank(),
+#         plot.title=element_text(size=22,face="bold", vjust=2),
+#         axis.title=element_text(size=12,face = "bold"),
+#         axis.text=element_text(size=14),
+#         strip.text.x = element_text(size=16, face = "bold"),
+#         legend.position="none")
+# p5b
+```
+
+\newpage
+# Switch Cost Effects
+## Plotting the Switch Costs
+```{r}
+data.switch<-incentive %>% group_by(subID,money,taskSwitch) %>%
+  filter(!is.na(subRewarded),trial!=1) %>%
+  summarise(meanRT=mean(RT)) %>% 
+  mutate(taskSwitch=factor(taskSwitch, levels=c(0,1), labels=c("taskrepeat","taskswitch"))) %>%
+  spread(key = taskSwitch, value=meanRT) %>%
+  mutate(meanRT=taskswitch-taskrepeat)
+
+RT.sum=summarySEwithin2(data=data.switch, measurevar = "meanRT", withinvars = c("money"),
+                        idvar = "subID")
+pandoc.table(RT.sum)
+p.switch.1<-ggplot(RT.sum, aes(x=money, y=meanRT)) +
+  geom_bar(position=position_dodge(width=0.8), color="black",stat="identity", width=0.8) +
+  geom_errorbar(position=position_dodge(width=0.8), 
+                aes(ymin=meanRT-se, ymax=meanRT+se), width=.2) +
+  #facet_grid(.~money) +
+  xlab("Monetary Reward") + ylab("Switch Cost") +
+  ggtitle("Task Switch Costs") +
+  #coord_cartesian(ylim=c(400,600)) +
+  scale_fill_discrete(name="Task Switch") +
+  theme(#plot.title=element_text(size=22,face="bold", vjust=2),
+        axis.title=element_text(size=12,face = "bold"),
+        axis.text=element_text(size=14),
+        #legend.position="none",
+        strip.text.x = element_text(size = 12))
+p.switch.1
+```
+
+## Switch Costs by money and gain/loss frame
+```{r}
+data.switch.frame<-incentive %>% group_by(subID,money,feedback,taskSwitch) %>%
+  filter(!is.na(subRewarded),trial!=1) %>%
+  summarise(meanRT=mean(RT)) %>% 
+  mutate(taskSwitch=factor(taskSwitch, levels=c(0,1), labels=c("taskrepeat","taskswitch"))) %>%
+  spread(key = taskSwitch, value=meanRT) %>%
+  mutate(meanRT=taskswitch-taskrepeat)
+
+RT.sum=summarySEwithin2(data=data.switch.frame, measurevar = "meanRT", 
+                        withinvars = c("money","feedback"), idvar = "subID")
+pandoc.table(RT.sum)
+p.switch.2<-ggplot(RT.sum, aes(x=money, y=meanRT)) +
+  geom_bar(position=position_dodge(width=0.8), color="black",stat="identity", width=0.8) +
+  geom_errorbar(position=position_dodge(width=0.8), 
+                aes(ymin=meanRT-se, ymax=meanRT+se), width=.2) +
+  facet_grid(.~feedback) +
+  xlab("Monetary Reward") + ylab("Switch Cost") +
+  ggtitle("Task Switch Costs") +
+  #coord_cartesian(ylim=c(400,600)) +
+  scale_fill_discrete(name="Task Switch") +
+  theme(#plot.title=element_text(size=22,face="bold", vjust=2),
+        axis.title=element_text(size=12,face = "bold"),
+        axis.text=element_text(size=14),
+        #legend.position="none",
+        strip.text.x = element_text(size = 12))
+p.switch.2
+```
+
+## Switch Costs by liquid and gain/loss frame
+```{r}
+data.switch.frame<-incentive %>% group_by(subID,liquid,feedback,taskSwitch) %>%
+  filter(!is.na(subRewarded),trial!=1) %>%
+  summarise(meanRT=mean(RT)) %>% 
+  mutate(taskSwitch=factor(taskSwitch, levels=c(0,1), labels=c("taskrepeat","taskswitch"))) %>%
+  spread(key = taskSwitch, value=meanRT) %>%
+  mutate(meanRT=taskswitch-taskrepeat)
+
+RT.sum=summarySEwithin2(data=data.switch.frame, measurevar = "meanRT", 
+                        withinvars = c("liquid","feedback"), idvar = "subID")
+pandoc.table(RT.sum)
+p.switch.3<-ggplot(RT.sum, aes(x=liquid, y=meanRT)) +
+  geom_bar(position=position_dodge(width=0.8), color="black",stat="identity", width=0.8) +
+  geom_errorbar(position=position_dodge(width=0.8), 
+                aes(ymin=meanRT-se, ymax=meanRT+se), width=.2) +
+  facet_grid(.~feedback) +
+  xlab("Monetary Reward") + ylab("Switch Cost") +
+  ggtitle("Task Switch Costs") +
+  #coord_cartesian(ylim=c(400,600)) +
+  scale_fill_discrete(name="Task Switch") +
+  theme(#plot.title=element_text(size=22,face="bold", vjust=2),
+        axis.title=element_text(size=12,face = "bold"),
+        axis.text=element_text(size=14),
+        #legend.position="none",
+        strip.text.x = element_text(size = 12))
+p.switch.3
+```
+
+
+## Switch Costs by money and gain/loss frame, 9 conditions
+```{r}
+data.switch.frame<-incentive %>% group_by(subID,money,feedback,liquid,taskSwitch) %>%
+  filter(!is.na(subRewarded),trial!=1) %>%
+  summarise(meanRT=mean(RT)) %>% 
+  mutate(taskSwitch=factor(taskSwitch, levels=c(0,1), labels=c("taskrepeat","taskswitch"))) %>%
+  spread(key = taskSwitch, value=meanRT) %>%
+  mutate(meanRT=taskswitch-taskrepeat)
+
+RT.sum=summarySEwithin2(data=data.switch.frame, measurevar = "meanRT", 
+                        withinvars = c("money","feedback","liquid"), idvar = "subID")
+pandoc.table(RT.sum)
+p.switch.4<-ggplot(RT.sum, aes(x=liquid, y=meanRT, fill=money)) +
+  geom_bar(position=position_dodge(width=0.8), color="black",stat="identity", width=0.8) +
+  geom_errorbar(position=position_dodge(width=0.8), 
+                aes(ymin=meanRT-se, ymax=meanRT+se), width=.2) +
+  facet_grid(.~feedback) +
+  xlab("Monetary Reward") + ylab("Switch Cost") +
+  ggtitle("Task Switch Costs") +
+  #coord_cartesian(ylim=c(400,600)) +
+  scale_fill_discrete(name="Task Switch") +
+  theme(#plot.title=element_text(size=22,face="bold", vjust=2),
+        axis.title=element_text(size=12,face = "bold"),
+        axis.text=element_text(size=14),
+        #legend.position="none",
+        strip.text.x = element_text(size = 12))
+p.switch.4
+```
+
+\newpage
+## GLMM on the Switch Costs
+It appears that switch costs are modulated by task switches, monetary reward, as well as an interaction between the two.
+```{r}
+# Is Reward Rate predicted by task switches? yes.
+m.switch.1<-glmer(formula = subRewarded ~ taskSwitch + (1|subID),
+                   data = incentive, family = binomial) 
+summary(m.switch.1)
+
+#Full Model (money,liquid,task switch)
+m.switch.2<-glmer(formula = subRewarded ~ taskSwitch*moneyCode*liqCode*feedbackCode
+                  + (1+moneyCode+liqCode|subID),
+                   data = incentive, family = binomial)
+summary(m.switch.2)
+
+# Gain Frame
+m.switch.3<-glmer(formula = subRewarded ~ taskSwitch*moneyCode*liqCode
+                  + (1+moneyCode+liqCode|subID),
+                   data = subset(incentive,feedback=="Positive"), family = binomial)
+summary(m.switch.3)
+
+# Loss Frame
+m.switch.4<-glmer(formula = subRewarded ~ taskSwitch*moneyCode*liqCode
+                  + (1+moneyCode+liqCode|subID),
+                   data = subset(incentive,feedback=="Negative"), family = binomial)
+summary(m.switch.4)
+```
+
+# Generating Figures/Plots
+## CNS 2018 Poster
+```{r}
+# CNS path
+cns.path="/Users/debbieyee/Documents/Conferences/2018/CNS/Figures/"
+ggsave(filename = "Task2_RR_GainLoss-Money.eps", plot = p.RR.4, device = "eps", 
+       path = cns.path, width = 6.5, height = 4.5, scale = 1)
+ggsave(filename = "Task2_RR_GainLoss-Liquid.eps", plot = p.RR.5, device = "eps", 
+       path = cns.path, width = 6.5, height = 4.5, scale = 1)
+ggsave(filename = "Task2_RR_GainLoss-9conditions.eps", plot = p.RR.7, device = "eps", 
+       path = cns.path, width = 9, height = 5.5, scale = 1)
+ggsave(filename = "Task2_RT_GainLoss-9conditions.eps", plot = p.RT.3, device = "eps", 
+       path = cns.path, width = 9, height = 5.5, scale = 1)
+ggsave(filename = "Task2_ACC_GainLoss-9conditions.eps", plot = p.ACC.3, device = "eps", 
+       path = cns.path, width = 9, height = 5.5, scale = 1)
+```
